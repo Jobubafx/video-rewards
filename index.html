@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Rewards App</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://unpkg.com/react-player/dist/react-player.js"></script>
+  <style>
+    /* Base styles */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+    
+    #root {
+      padding: 16px;
+      padding-bottom: 70px;
+    }
+    
+    /* Navigation */
+    .nav {
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 0;
+      background: white;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .nav button {
+      background: none;
+      border: none;
+      font-size: 16px;
+      padding: 8px 16px;
+    }
+    
+    /* Video player */
+    .video-container {
+      margin-bottom: 16px;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    /* Buttons */
+    .btn {
+      background-color: #0088cc;
+      color: white;
+      border: none;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 16px;
+      margin: 8px 0;
+      cursor: pointer;
+      width: 100%;
+    }
+    
+    /* Upload styles */
+    .upload-container {
+      margin: 16px 0;
+      text-align: center;
+    }
+    
+    .upload-label {
+      display: block;
+      padding: 40px;
+      background-color: #f0f0f0;
+      border-radius: 8px;
+      border: 2px dashed #ccc;
+    }
+    
+    /* Profile styles */
+    .profile-info {
+      background: white;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    
+    /* Rewards styles */
+    .reward-card {
+      background: white;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    
+    .coin-balance {
+      text-align: center;
+      font-size: 18px;
+      font-weight: bold;
+      margin: 16px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 8px;
+    }
+    
+    /* Loading states */
+    .loading {
+      text-align: center;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root">Loading app...</div>
+
+  <script type="text/babel">
+    // Initialize React and ReactDOM from global scope
+    const { useState, useEffect, useRef } = React;
+    
+    // Initialize Telegram WebApp if available
+    const tgWebApp = window.Telegram?.WebApp;
+    if (tgWebApp) {
+      tgWebApp.expand();
+      tgWebApp.ready();
+      console.log('Telegram WebApp initialized');
+    } else {
+      console.log('Running outside Telegram');
+    }
+    
+    // Mock database with localStorage persistence
+    const initializeData = () => {
+      if (!localStorage.getItem('videos')) {
+        localStorage.setItem('videos', JSON.stringify([
+          { 
+            id: '1', 
+            url: 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4', 
+            likes: 0, 
+            userId: 'user1' 
+          }
+        ]));
+      }
+      
+      if (!localStorage.getItem('users')) {
+        localStorage.setItem('users', JSON.stringify([
+          { id: 'user1', username: 'telegram_user', coins: 50 }
+        ]));
+      }
+      
+      if (!localStorage.getItem('rewards')) {
+        localStorage.setItem('rewards', JSON.stringify([
+          { id: '1', name: 'Basic Reward', description: 'Get a shoutout', cost: 50 },
+          { id: '2', name: 'Crypto Reward', description: '0.001 ETH', cost: 100 }
+        ]));
+      }
+    };
+    
+    // Initialize data on first load
+    initializeData();
+    
+    // API functions
+    const getVideos = () => JSON.parse(localStorage.getItem('videos')) || [];
+    const getUserVideos = (userId) => getVideos().filter(video => video.userId === userId);
+    const likeVideo = (videoId) => {
+      const videos = getVideos();
+      const videoIndex = videos.findIndex(v => v.id === videoId);
+      if (videoIndex >= 0) {
+        videos[videoIndex].likes += 1;
+        localStorage.setItem('videos', JSON.stringify(videos));
+      }
+    };
+    const uploadVideo = (file, userId) => {
+      const videos = getVideos();
+      const newVideo = {
+        id: `vid_${Date.now()}`,
+        url: URL.createObjectURL(file),
+        likes: 0,
+        userId
+      };
+      videos.unshift(newVideo);
+      localStorage.setItem('videos', JSON.stringify(videos));
+      return newVideo;
+    };
+    const getBalance = (userId) => {
+      const users = JSON.parse(localStorage.getItem('users')) || [];
+      const user = users.find(u => u.id === userId) || { coins: 0 };
+      return user.coins;
+    };
+    const awardCoins = (userId, amount) => {
+      const users = JSON.parse(localStorage.getItem('users')) || [];
+      let user = users.find(u => u.id === userId);
+      if (!user) {
+        user = { id: userId, username: `user_${userId}`, coins: 0 };
+        users.push(user);
+      }
+      user.coins += amount;
+      localStorage.setItem('users', JSON.stringify(users));
+      return user.coins;
+    };
+    const getRewardOptions = () => JSON.parse(localStorage.getItem('rewards')) || [];
+    const redeemCoins = (userId, optionId) => {
+      const rewards = getRewardOptions();
+      const users = JSON.parse(localStorage.getItem('users')) || [];
+      const reward = rewards.find(r => r.id === optionId);
+      const user = users.find(u => u.id === userId);
+      
+      if (user && reward && user.coins >= reward.cost) {
+        user.coins -= reward.cost;
+        localStorage.setItem('users', JSON.stringify(users));
+        return true;
+      }
+      return false;
+    };
+    
+    // Components
+    function CoinBalance({ userId }) {
+      const [balance, setBalance] = useState(0);
+      
+      useEffect(() => {
+        setBalance(getBalance(userId));
+      }, [userId]);
+      
+      return (
+        <div className="coin-balance">
+          Your Coins: {balance}
+        </div>
+      );
+    }
+    
+    function VideoPlayer({ url, videoId, onLike }) {
+      const playerRef = useRef(null);
+      
+      return (
+        <div className="video-container">
+          <ReactPlayer
+            ref={playerRef}
+            url={url}
+            controls
+            width="100%"
+            height="auto"
+            onEnded={() => onLike(videoId, 'watch')}
+          />
+          <button onClick={() => onLike(videoId, 'like')} className="btn">
+            👍 Like (+2 coins)
+          </button>
+        </div>
+      );
+    }
+    
+    function VideoUploader({ onUpload, userId }) {
+      const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          onUpload(file, userId);
+        }
+      };
+      
+      return (
+        <div className="upload-container">
+          <input
+            type="file"
+            id="video-upload"
+            accept="video/*"
+            capture="environment"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <label htmlFor="video-upload" className="upload-label">
+            Tap to Record or Upload Video
+          </label>
+        </div>
+      );
+    }
+    
+    // Pages
+    function HomePage({ userId }) {
+      const [videos, setVideos] = useState([]);
+      const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
+      
+      useEffect(() => {
+        setVideos(getVideos());
+      }, []);
+      
+      const handleLike = (videoId, action) => {
+        if (action === 'like') {
+          likeVideo(videoId);
+          awardCoins(userId, 2);
+        } else if (action === 'watch') {
+          awardCoins(userId, 5);
+        }
+      };
+      
+      const handleNext = () => {
+        setCurrentVideoIndex((prev) => (prev + 1) % videos.length);
+      };
+      
+      if (videos.length === 0) return <div className="loading">No videos available</div>;
+      
+      return (
+        <div>
+          <CoinBalance userId={userId} />
+          <VideoPlayer
+            url={videos[currentVideoIndex].url}
+            videoId={videos[currentVideoIndex].id}
+            onLike={handleLike}
+          />
+          <button onClick={handleNext} className="btn">
+            Next Video
+          </button>
+        </div>
+      );
+    }
+    
+    function UploadPage({ userId }) {
+      const [uploadComplete, setUploadComplete] = useState(false);
+      
+      const handleUpload = (file, userId) => {
+        uploadVideo(file, userId);
+        awardCoins(userId, 10);
+        setUploadComplete(true);
+      };
+      
+      return (
+        <div>
+          <CoinBalance userId={userId} />
+          <h2>Upload Your Video</h2>
+          {uploadComplete ? (
+            <div>
+              <p>Video uploaded successfully! +10 coins</p>
+              <button 
+                onClick={() => setUploadComplete(false)}
+                className="btn"
+              >
+                Upload Another
+              </button>
+            </div>
+          ) : (
+            <VideoUploader onUpload={handleUpload} userId={userId} />
+          )}
+        </div>
+      );
+    }
+    
+    function ProfilePage({ userId }) {
+      const [videos, setVideos] = useState([]);
+      const [balance, setBalance] = useState(0);
+      
+      useEffect(() => {
+        setVideos(getUserVideos(userId));
+        setBalance(getBalance(userId));
+      }, [userId]);
+      
+      return (
+        <div>
+          <div className="profile-info">
+            <h2>Your Profile</h2>
+            <p>User ID: {userId}</p>
+            <p>Coins: {balance}</p>
+          </div>
+          
+          <h3>Your Videos</h3>
+          {videos.length === 0 ? (
+            <p>You haven't uploaded any videos yet</p>
+          ) : (
+            videos.map(video => (
+              <div key={video.id} style={{ marginBottom: '16px' }}>
+                <ReactPlayer
+                  url={video.url}
+                  controls
+                  width="100%"
+                  height="auto"
+                />
+                <p>Likes: {video.likes}</p>
+              </div>
+            ))
+          )}
+        </div>
+      );
+    }
+    
+    function RewardsPage({ userId }) {
+      const [options, setOptions] = useState([]);
+      const [balance, setBalance] = useState(0);
+      
+      useEffect(() => {
+        setOptions(getRewardOptions());
+        setBalance(getBalance(userId));
+      }, [userId]);
+      
+      const handleRedeem = (optionId, cost) => {
+        if (balance < cost) {
+          alert('Not enough coins!');
+          return;
+        }
+        
+        if (redeemCoins(userId, optionId)) {
+          setBalance(getBalance(userId));
+          alert('Reward redeemed successfully!');
+        } else {
+          alert('Failed to redeem reward');
+        }
+      };
+      
+      return (
+        <div>
+          <h2>Redeem Your Coins</h2>
+          <div className="coin-balance">Balance: {balance} coins</div>
+          
+          <div>
+            {options.map(option => (
+              <div key={option.id} className="reward-card">
+                <h3>{option.name}</h3>
+                <p>{option.description}</p>
+                <p>Cost: {option.cost} coins</p>
+                <button
+                  onClick={() => handleRedeem(option.id, option.cost)}
+                  disabled={balance < option.cost}
+                  className="btn"
+                >
+                  Redeem
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    
+    // Main App
+    function App() {
+      const [currentPage, setCurrentPage] = useState('home');
+      
+      // Get user ID from Telegram or use mock
+      const userId = tgWebApp?.initDataUnsafe?.user?.id || 'user1';
+      
+      const renderPage = () => {
+        switch (currentPage) {
+          case 'home': return <HomePage userId={userId} />;
+          case 'upload': return <UploadPage userId={userId} />;
+          case 'profile': return <ProfilePage userId={userId} />;
+          case 'rewards': return <RewardsPage userId={userId} />;
+          default: return <HomePage userId={userId} />;
+        }
+      };
+      
+      return (
+        <div>
+          {renderPage()}
+          
+          <div className="nav">
+            <button onClick={() => setCurrentPage('home')}>Home</button>
+            <button onClick={() => setCurrentPage('upload')}>Upload</button>
+            <button onClick={() => setCurrentPage('profile')}>Profile</button>
+            <button onClick={() => setCurrentPage('rewards')}>Rewards</button>
+          </div>
+        </div>
+      );
+    }
+    
+    // Render the app
+    const rootElement = document.getElementById('root');
+    const root = ReactDOM.createRoot(rootElement);
+    root.render(<App />);
+  </script>
+</body>
+</html>
